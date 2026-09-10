@@ -238,19 +238,3 @@ data class JikanTrailer(
     @JsonProperty("embed_url") val embedUrl: String?
 )
 
-data class JikanEpisodesResponse(
-    @JsonProperty("data") val data: List<JikanEpisode> = emptyList(),
-    @JsonProperty("pagination") val pagination: JikanEpisodesPagination?
-)
-
-data class JikanEpisodesPagination(
-    @JsonProperty("last_visible_page") val lastVisiblePage: Int?,
-    @JsonProperty("has_next_page") val hasNextPage: Boolean?
-)
-
-data class JikanEpisode(
-    @JsonProperty("mal_id") val malId: Int?,
-    @JsonProperty("title") val title: String?,
-    @JsonProperty("filler") val filler: Boolean?
-)
-

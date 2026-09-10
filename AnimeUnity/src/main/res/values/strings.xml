@@ -44,7 +44,6 @@
     <string name="display_options_title">Dettagli scheda</string>
     <string name="episode_number_switch_text">Numero episodio</string>
     <string name="italian_episode_titles_switch_text">Titoli episodi in italiano</string>
-    <string name="filler_episodes_switch_text">Segna episodi filler</string>
     <string name="score_switch_text">Valutazione</string>
     <string name="advanced_search_name_label">Nome</string>
     <string name="advanced_search_name_hint">Nome anime</string>

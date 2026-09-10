@@ -46,7 +46,6 @@ class AnimeUnityPlugin : Plugin() {
         const val PREF_SHOW_DUB_SUB = "showDubSub"
         const val PREF_SHOW_EPISODE_NUMBER = "showEpisodeNumber"
         const val PREF_ITALIAN_EPISODE_TITLES = "italianEpisodeTitles"
-        const val PREF_MARK_FILLER_EPISODES = "markFillerEpisodes"
         const val PREF_SHOW_SCORE = "showScore"
         const val PREF_SECTION_ORDER = "sectionOrder"
         const val PREF_ENABLE_ADVANCED_SEARCH = "enableAdvancedSearch"
@@ -68,7 +67,6 @@ class AnimeUnityPlugin : Plugin() {
         const val DEFAULT_SECTION_ORDER = "latest,calendar,random,ongoing,popular,best,upcoming"
         const val DEFAULT_UNIFY_DUB_SUB_CARDS = true
         const val DEFAULT_ITALIAN_EPISODE_TITLES = true
-        const val DEFAULT_MARK_FILLER_EPISODES = true
         const val DEFAULT_CACHE_MAX_ENTRIES = 1000
         const val MIN_CACHE_MAX_ENTRIES = 50
         const val MAX_CACHE_MAX_ENTRIES = 10000
@@ -244,13 +242,6 @@ class AnimeUnityPlugin : Plugin() {
                 PREF_ITALIAN_EPISODE_TITLES,
                 DEFAULT_ITALIAN_EPISODE_TITLES,
             ) ?: DEFAULT_ITALIAN_EPISODE_TITLES
-        }
-
-        fun shouldMarkFillerEpisodes(sharedPref: SharedPreferences?): Boolean {
-            return sharedPref?.getBoolean(
-                PREF_MARK_FILLER_EPISODES,
-                DEFAULT_MARK_FILLER_EPISODES,
-            ) ?: DEFAULT_MARK_FILLER_EPISODES
         }
 
         fun getAdvancedSearchGenres(): List<ArchiveGenreOption> {
