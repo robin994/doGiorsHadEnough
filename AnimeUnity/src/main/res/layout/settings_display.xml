@@ -174,6 +174,37 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/filler_episodes_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:minHeight="52dp"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="10dp">
+
+                <TextView
+                    android:id="@+id/filler_episodes_label"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <Switch
+                    android:id="@+id/filler_episodes_switch"
+                    android:layout_width="42dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="0dp"
+                    android:showText="false"
+                    android:switchMinWidth="28dp"
+                    android:text="" />
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/score_row"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
