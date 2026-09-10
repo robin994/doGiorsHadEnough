@@ -97,15 +97,3 @@ jobs:
           git add .
           git commit --amend -m "Build $GITHUB_SHA" || exit 0   # do not error if nothing to commit
           git push --force
-
-      - name: Purge jsDelivr cache
-        # jsDelivr tiene in cache i file di un branch ~12h: senza purge chi usa il
-        # proxy jsDelivr in CloudStream vede plugins.json nuovo ma .cs3 vecchio
-        # (o viceversa) -> "hash mismatch" all'installazione.
-        run: |
-          cd "$GITHUB_WORKSPACE/builds"
-          base="https://purge.jsdelivr.net/gh/${GITHUB_REPOSITORY}@builds"
-          for f in repo.json plugins.json *.cs3; do
-            echo "purge $f"
-            curl -s -m 30 "$base/$f" > /dev/null || true
-          done
