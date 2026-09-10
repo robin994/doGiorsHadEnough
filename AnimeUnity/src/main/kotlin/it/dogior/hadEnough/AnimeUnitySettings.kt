@@ -790,6 +790,14 @@ class AnimeUnityDisplaySettingsFragment : AnimeUnityBaseSettingsFragment() {
                 AnimeUnityPlugin.DEFAULT_ITALIAN_EPISODE_TITLES,
             ),
             SwitchSetting(
+                AnimeUnityPlugin.PREF_MARK_FILLER_EPISODES,
+                "filler_episodes_row",
+                "filler_episodes_label",
+                "filler_episodes_switch",
+                "filler_episodes_switch_text",
+                AnimeUnityPlugin.DEFAULT_MARK_FILLER_EPISODES,
+            ),
+            SwitchSetting(
                 AnimeUnityPlugin.PREF_SHOW_SCORE,
                 "score_row",
                 "score_label",

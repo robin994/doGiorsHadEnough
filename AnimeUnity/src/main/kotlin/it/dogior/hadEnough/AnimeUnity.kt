@@ -37,6 +37,7 @@ import java.text.Normalizer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 typealias Str = BooleanOrString.AsString
 
@@ -72,7 +73,18 @@ class AnimeUnity(
             "Host" to mainUrl.toHttpUrl().host,
             "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
         ).toMutableMap()
+
+        private const val FILLER_PREFIX = "[FILLER] "
+
+        // Cache per MAL id: dati filler canonici (Jikan) e serie per cui non sono
+        // utilizzabili (fetch fallito o numerazione non allineata a quella canonica).
+        private val jikanFillerCache = ConcurrentHashMap<Int, FillerData>()
+        private val jikanFillerUnavailable = ConcurrentHashMap<Int, Boolean>()
     }
+
+    private data class JikanEpisodeInfo(val title: String?, val filler: Boolean)
+
+    private class FillerData(val episodes: Map<Int, JikanEpisodeInfo>)
 
     private data class ArchivePageResult(
         val titles: List<Anime>,
@@ -639,6 +651,91 @@ class AnimeUnity(
 
     private fun shouldUseItalianEpisodeTitles(): Boolean {
         return AnimeUnityPlugin.shouldUseItalianEpisodeTitles(sharedPref)
+    }
+
+    private fun shouldMarkFillerEpisodes(): Boolean {
+        return AnimeUnityPlugin.shouldMarkFillerEpisodes(sharedPref)
+    }
+
+    /**
+     * Segna i filler nel titolo (`[FILLER] ...`) usando i dati canonici di Jikan.
+     *
+     * Il flag nativo di CloudStream abbina `filler.contains(this.episode)` alla
+     * cieca: se la numerazione di AnimeUnity diverge da quella canonica (edizione
+     * italiana di Detective Conan, ecc.) marca gli episodi sbagliati. Qui invece
+     * procediamo solo se la numerazione AU è 1..N contigua e combacia esattamente
+     * con quella di Jikan: così non si sbaglia mai, al massimo su una serie
+     * rinumerata non compare nulla.
+     */
+    private suspend fun markFillerEpisodes(
+        subEpisodes: List<com.lagradost.cloudstream3.Episode>,
+        dubEpisodes: List<com.lagradost.cloudstream3.Episode>,
+        malId: Int,
+    ) {
+        // La lista più completa è quella con più probabilità di essere allineata
+        // alla numerazione canonica (l'altra può essere un doppiaggio parziale).
+        val referenceEpisodes = if (subEpisodes.size >= dubEpisodes.size) subEpisodes else dubEpisodes
+        val auNumbers = referenceEpisodes.mapNotNull { it.episode }
+        if (auNumbers.size < 2) return
+
+        val auMax = auNumbers.max()
+        val expectedNumbers = (1..auMax).toSet()
+        if (auNumbers.toSet() != expectedNumbers) return
+
+        val data = fetchJikanFillerData(malId, auMax) ?: return
+        if (data.episodes.keys.toSet() != expectedNumbers) return
+
+        val fillerNumbers = data.episodes.filterValues { it.filler }.keys
+        if (fillerNumbers.isEmpty()) return
+
+        (subEpisodes.asSequence() + dubEpisodes.asSequence()).forEach { episode ->
+            val number = episode.episode ?: return@forEach
+            if (number !in fillerNumbers) return@forEach
+            if (episode.name?.startsWith(FILLER_PREFIX) == true) return@forEach
+            val base = episode.name
+                ?: data.episodes[number]?.title
+                ?: buildEpisodeDisplayName(number.toString())
+            episode.name = "$FILLER_PREFIX$base"
+        }
+    }
+
+    private suspend fun fetchJikanFillerData(malId: Int, expectedCount: Int): FillerData? {
+        jikanFillerCache[malId]?.let { return it }
+        if (jikanFillerUnavailable.containsKey(malId)) return null
+
+        val infos = LinkedHashMap<Int, JikanEpisodeInfo>()
+        var page = 1
+        while (page <= 60) {
+            val url = "https://api.jikan.moe/v4/anime/$malId/episodes?page=$page"
+            // Errore di rete o risposta d'errore di Jikan/MAL (JSON senza "data"):
+            // niente cache, si riprova al prossimo load.
+            val body = runCatching { app.get(url).text }.getOrNull() ?: return null
+            val parsed = runCatching { parseJson<JikanEpisodesResponse>(body) }.getOrNull()
+                ?: return null
+            if (parsed.data.isEmpty()) return null
+
+            parsed.data.forEach { episode ->
+                val number = episode.malId ?: return@forEach
+                infos[number] = JikanEpisodeInfo(
+                    title = episode.title?.trim()?.takeIf { it.isNotEmpty() },
+                    filler = episode.filler == true,
+                )
+            }
+
+            if (page == 1) {
+                // Se il totale canonico non può combaciare con quello AU la serie è
+                // rinumerata: lo memorizziamo e non riproviamo.
+                val lastPage = parsed.pagination?.lastVisiblePage ?: 1
+                if (expectedCount !in ((lastPage - 1) * 100 + 1)..(lastPage * 100)) {
+                    jikanFillerUnavailable[malId] = true
+                    return null
+                }
+            }
+            if (parsed.pagination?.hasNextPage != true) break
+            page++
+        }
+
+        return FillerData(infos).also { jikanFillerCache[malId] = it }
     }
 
     private val fileNameTokenSeparator = """[.\s_]+"""
@@ -1278,6 +1375,12 @@ class AnimeUnity(
         val hasSub = subEpisodeMap.isNotEmpty()
         val hasDub = dubEpisodeMap.isNotEmpty()
         val trailerUrl = getTrailerUrl(primaryAnime)
+
+        if (shouldMarkFillerEpisodes() && primaryAnime.type == "TV") {
+            primaryAnime.malId?.let { malId ->
+                runCatching { markFillerEpisodes(subEpisodes, dubEpisodes, malId) }
+            }
+        }
 
         return newAnimeLoadResponse(
             name = title.replace(" (ITA)", ""),
