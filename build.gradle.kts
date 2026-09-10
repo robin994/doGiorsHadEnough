@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
 buildscript {
     repositories {
+        mavenLocal() // Cloudstream gradle plugin buildato da sorgente in CI (workaround bug metadata JitPack)
         google()
         mavenCentral()
         maven("https://jitpack.io")
@@ -15,7 +16,10 @@ buildscript {
 
     dependencies {
         classpath("com.android.tools.build:gradle:9.1.1")
-        classpath("com.github.recloudstream:gradle:master-SNAPSHOT")
+        // JitPack serve metadata corrotti per com.github.recloudstream:gradle:master-SNAPSHOT
+        // ("master-aster-SNAPSHOT"). Usiamo il plugin pubblicato in mavenLocal dallo step CI
+        // "Build Cloudstream gradle plugin".
+        classpath("com.lagradost.cloudstream3:gradle:local-SNAPSHOT")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.21")
     }
 }
@@ -68,13 +72,14 @@ subprojects {
         }
 
         compileOptions {
-            sourceCompatibility = JavaVersion.VERSION_1_8
-            targetCompatibility = JavaVersion.VERSION_1_8
+            // Gli stub com.lagradost:cloudstream3:pre-release sono ora compilati con JVM target 11
+            sourceCompatibility = JavaVersion.VERSION_11
+            targetCompatibility = JavaVersion.VERSION_11
         }
 
         tasks.withType<KotlinJvmCompile> {
             compilerOptions {
-                jvmTarget.set(JvmTarget.JVM_1_8)
+                jvmTarget.set(JvmTarget.JVM_11)
                 freeCompilerArgs.addAll(
                     "-Xno-call-assertions",
                     "-Xno-param-assertions",

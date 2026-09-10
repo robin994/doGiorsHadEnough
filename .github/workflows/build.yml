@@ -44,6 +44,17 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4.0.1
 
+      - name: Build Cloudstream gradle plugin
+        # JitPack serve metadata corrotti per com.github.recloudstream:gradle:master-SNAPSHOT
+        # (errore "master-aster-SNAPSHOT"). Buildiamo il plugin da sorgente e lo pubblichiamo
+        # in mavenLocal come com.lagradost.cloudstream3:gradle:local-SNAPSHOT.
+        run: |
+          git clone https://github.com/recloudstream/gradle.git "$GITHUB_WORKSPACE/cs-gradle"
+          cd "$GITHUB_WORKSPACE/cs-gradle"
+          git checkout 32895aedb6366f5075cb99bbd2e6ce0a7cac325d
+          chmod +x gradlew
+          ./gradlew publishToMavenLocal
+
       - name: Access Secrets
         env:
           TMDB_API: ${{ secrets.TMDB_API }}
