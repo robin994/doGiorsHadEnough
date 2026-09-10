@@ -45,6 +45,7 @@ class AnimeUnityPlugin : Plugin() {
         const val PREF_UNIFY_DUB_SUB_CARDS = "unifyDubSubCards"
         const val PREF_SHOW_DUB_SUB = "showDubSub"
         const val PREF_SHOW_EPISODE_NUMBER = "showEpisodeNumber"
+        const val PREF_ITALIAN_EPISODE_TITLES = "italianEpisodeTitles"
         const val PREF_SHOW_SCORE = "showScore"
         const val PREF_SECTION_ORDER = "sectionOrder"
         const val PREF_ENABLE_ADVANCED_SEARCH = "enableAdvancedSearch"
@@ -65,6 +66,7 @@ class AnimeUnityPlugin : Plugin() {
         const val DEFAULT_ADVANCED_SEARCH_COUNT = MAX_SECTION_COUNT
         const val DEFAULT_SECTION_ORDER = "latest,calendar,random,ongoing,popular,best,upcoming"
         const val DEFAULT_UNIFY_DUB_SUB_CARDS = true
+        const val DEFAULT_ITALIAN_EPISODE_TITLES = true
         const val DEFAULT_CACHE_MAX_ENTRIES = 1000
         const val MIN_CACHE_MAX_ENTRIES = 50
         const val MAX_CACHE_MAX_ENTRIES = 10000
@@ -233,6 +235,13 @@ class AnimeUnityPlugin : Plugin() {
                 PREF_UNIFY_DUB_SUB_CARDS,
                 DEFAULT_UNIFY_DUB_SUB_CARDS,
             ) ?: DEFAULT_UNIFY_DUB_SUB_CARDS
+        }
+
+        fun shouldUseItalianEpisodeTitles(sharedPref: SharedPreferences?): Boolean {
+            return sharedPref?.getBoolean(
+                PREF_ITALIAN_EPISODE_TITLES,
+                DEFAULT_ITALIAN_EPISODE_TITLES,
+            ) ?: DEFAULT_ITALIAN_EPISODE_TITLES
         }
 
         fun getAdvancedSearchGenres(): List<ArchiveGenreOption> {

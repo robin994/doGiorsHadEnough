@@ -104,6 +104,7 @@ class AnimeUnity(
     private data class EpisodeSource(
         val number: String,
         val url: String,
+        val title: String? = null,
     )
 
     private data class EpisodePlaybackData(
@@ -636,6 +637,47 @@ class AnimeUnity(
         return "Episodio $number"
     }
 
+    private fun shouldUseItalianEpisodeTitles(): Boolean {
+        return AnimeUnityPlugin.shouldUseItalianEpisodeTitles(sharedPref)
+    }
+
+    private val fileNameEpisodeTitleRegex = Regex(
+        """[Ss]\d{1,3}[Ee]\d{1,4}\.(.+?)\.(?:\d{3,4}p|2160p|SD|HD|BDRip|BluRay|WEB-?DL|WEBRip|DVDRip|HDTV|x264|x265)\b"""
+    )
+
+    /**
+     * Ricava il titolo italiano dell'episodio dal nome del file, quando i rip lo
+     * contengono (es. `One.Piece.S01E01.Il.ragazzo.di.gomma.1080p.AMZN.WEB-DL.ITA...`).
+     * Restituisce `null` quando il nome file non contiene un titolo leggibile.
+     */
+    private fun parseEpisodeTitleFromFileName(fileName: String?): String? {
+        if (fileName.isNullOrBlank()) return null
+        val raw = fileNameEpisodeTitleRegex.find(fileName)?.groupValues?.getOrNull(1) ?: return null
+        return raw.replace('.', ' ')
+            .replace(Regex("""\s*-\s*-\s*"""), " - ")
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', '-')
+            .takeIf { it.isNotBlank() }
+    }
+
+    /**
+     * AnimeUnity numera gli episodi secondo l'edizione italiana, che per molte
+     * serie (Detective Conan, ecc.) diverge dalla numerazione giapponese usata
+     * dai metadati di sincronizzazione (Kitsu/AniList). CloudStream riempie il
+     * nome degli episodi privi di titolo abbinando per numero
+     * (`this.name = this.name ?: node.titles.canonical`), quindi dopo ogni
+     * divergenza il titolo mostrato non corrisponde più al video.
+     *
+     * Impostando noi il nome - titolo dal nome file se disponibile, altrimenti
+     * "Episodio N" con la numerazione di AnimeUnity - la sincronizzazione non lo
+     * sovrascrive (restano invece copertina e trama dai metadati). Soluzione
+     * generica: nessuna tabella per singola serie.
+     */
+    private fun italianEpisodeName(episode: Episode): String {
+        return parseEpisodeTitleFromFileName(episode.fileName)
+            ?: buildEpisodeDisplayName(episode.number.trim())
+    }
+
     private fun buildPlayerSourceOptions(playbackData: EpisodePlaybackData): List<PlayerSourceOption> {
         val orderedSources = mutableListOf<PlayerSourceOption>()
         val seenUrls = linkedSetOf<String>()
@@ -666,17 +708,23 @@ class AnimeUnity(
         return orderedSources
     }
 
-    private fun buildEpisodeSourceMap(anime: Anime?, episodes: List<Episode>): LinkedHashMap<String, EpisodeSource> {
+    private fun buildEpisodeSourceMap(
+        anime: Anime?,
+        episodes: List<Episode>,
+        useItalianTitles: Boolean = false,
+    ): LinkedHashMap<String, EpisodeSource> {
         val sourceAnime = anime ?: return linkedMapOf()
         val sourceMap = linkedMapOf<String, EpisodeSource>()
 
         episodes.forEach { episode ->
             val rawNumber = episode.number.trim()
+            val title = if (useItalianTitles) italianEpisodeName(episode) else null
             sourceMap.putIfAbsent(
                 rawNumber,
                 EpisodeSource(
                     number = rawNumber,
                     url = getEpisodeUrl(sourceAnime, episode),
+                    title = title,
                 )
             )
         }
@@ -709,10 +757,12 @@ class AnimeUnity(
                 )
                 newEpisode(playbackData) {
                     this.episode = source.number.toIntOrNull()
+                    val explicitName = source.title
+                        ?: if (this.episode == null) buildEpisodeDisplayName(source.number) else null
                     if (isFallbackEpisode && fallbackNamePrefix != null) {
-                        this.name = "$fallbackNamePrefix${buildEpisodeDisplayName(source.number)}"
-                    } else if (this.episode == null) {
-                        this.name = buildEpisodeDisplayName(source.number)
+                        this.name = "$fallbackNamePrefix${explicitName ?: buildEpisodeDisplayName(source.number)}"
+                    } else if (explicitName != null) {
+                        this.name = explicitName
                     }
                 }
             }
@@ -1156,8 +1206,13 @@ class AnimeUnity(
             }
         }
 
-        val subEpisodeMap = buildEpisodeSourceMap(subPageData?.anime, subPageData?.episodes.orEmpty())
-        val dubEpisodeMap = buildEpisodeSourceMap(dubPageData?.anime, dubPageData?.episodes.orEmpty())
+        val useItalianTitles = shouldUseItalianEpisodeTitles()
+        val subEpisodeMap = buildEpisodeSourceMap(
+            subPageData?.anime, subPageData?.episodes.orEmpty(), useItalianTitles
+        )
+        val dubEpisodeMap = buildEpisodeSourceMap(
+            dubPageData?.anime, dubPageData?.episodes.orEmpty(), useItalianTitles
+        )
         val subEpisodes = if (shouldMergeVariants) {
             buildMergedEpisodes(
                 primaryEpisodes = subEpisodeMap,
