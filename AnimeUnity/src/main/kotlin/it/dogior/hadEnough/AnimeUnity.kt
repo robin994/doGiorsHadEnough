@@ -79,7 +79,7 @@ class AnimeUnity(
         // Cache per MAL id: dati filler canonici (Jikan) e serie per cui non sono
         // utilizzabili (fetch fallito o numerazione non allineata a quella canonica).
         private val jikanFillerCache = ConcurrentHashMap<Int, FillerData>()
-        private val jikanFillerUnavailable: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+        private val jikanFillerUnavailable = ConcurrentHashMap<Int, Boolean>()
     }
 
     private data class JikanEpisodeInfo(val title: String?, val filler: Boolean)
@@ -701,7 +701,7 @@ class AnimeUnity(
 
     private suspend fun fetchJikanFillerData(malId: Int, expectedCount: Int): FillerData? {
         jikanFillerCache[malId]?.let { return it }
-        if (malId in jikanFillerUnavailable) return null
+        if (jikanFillerUnavailable.containsKey(malId)) return null
 
         val infos = LinkedHashMap<Int, JikanEpisodeInfo>()
         var page = 1
@@ -728,7 +728,7 @@ class AnimeUnity(
                 // rinumerata: lo memorizziamo e non riproviamo.
                 val lastPage = parsed.pagination?.lastVisiblePage ?: 1
                 if (expectedCount !in ((lastPage - 1) * 100 + 1)..(lastPage * 100)) {
-                    jikanFillerUnavailable.add(malId)
+                    jikanFillerUnavailable[malId] = true
                     return null
                 }
             }
