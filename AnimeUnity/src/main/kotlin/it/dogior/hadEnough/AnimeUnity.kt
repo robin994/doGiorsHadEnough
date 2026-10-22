@@ -613,7 +613,7 @@ class AnimeUnity(
     private fun getImageCdnHost(): String {
         val host = mainUrl.toHttpUrl().host
         return when {
-            host == "animeunity.so" -> "img.animeunity.so"
+            host == "animeunity.to" -> "img.animeunity.to"
             host.startsWith("www.") -> host.replaceFirst("www.", "img.")
             host.startsWith("img.") -> host
             else -> "img.$host"

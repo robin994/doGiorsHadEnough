@@ -1,7 +1,6 @@
 package it.dogior.hadEnough
 
 import com.fasterxml.jackson.annotation.JsonProperty
-import com.fasterxml.jackson.databind.exc.MismatchedInputException
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.network.CloudflareKiller
@@ -19,7 +18,7 @@ import kotlin.io.encoding.Base64
 
 class CalcioStreaming : MainAPI() {
     override var lang = "it"
-    override var mainUrl = "https://corner.direttecommunity.online/"
+    override var mainUrl = "https://finale.direttecommunity.online/"
     override var name = "CalcioStreaming"
     override val hasMainPage = true
     override val hasChromecastSupport = true
@@ -57,7 +56,9 @@ class CalcioStreaming : MainAPI() {
                 ), false
             )
         }else {
-            val resp = app.get("$mainUrl/api/events.php").body.string()
+            val urlCheck = app.get(mainUrl)
+            val actualUrl = urlCheck.okhttpResponse.request.url.toString()
+            val resp = app.get(actualUrl + "api/events.php").body.string()
             val respEvents = tryParseJson<JSONResponse>(resp) ?: return null
             val events = respEvents.events
             val searchResponses = events.mapNotNull { event ->
@@ -129,7 +130,7 @@ class CalcioStreaming : MainAPI() {
     }
 
     private suspend fun extractVideoStream(url: String, name: String): Link? {
-        return if(url.contains("sportsonlinee")){
+        return if(url.contains("sportsonlinee") || url.contains("sportsonliine")){
             extractSportsOnline(name, url, 0)
         } else if(url.contains("zicotv")) {
             extractZicoTv(name, url)
@@ -140,12 +141,14 @@ class CalcioStreaming : MainAPI() {
 
     private suspend fun extractZicoTv(name: String, url: String): Link?{
         val resp = app.get(url).document
-        val script = resp.body().selectFirst("script") ?: return null
+        val script = resp.body().selectFirst("script")
+        Log.d("SOURCE-ZICOTV", script?.data() ?: "null")
+        if (script == null) return null
         val variable = "ZT_SOURCES ?= ?(.*);".toRegex().find(script.toString())?.groupValues?.firstOrNull() ?: return null
         val sourceListNormalized = variable.replaceBefore("[{", "").replaceAfterLast("}]", "").replace("\\/", "/")
         val sourceList = tryParseJson<List<ZicoTvSources>>(sourceListNormalized) ?: return null
         val ref = url.split("/").subList(0,3).joinToString("/") + "/"
-       return Link(name=name, url = sourceList[0].url, ref = ref)
+       return Link(name=name, url = sourceList.first{it.url != null}.url!!, ref = ref)
     }
 
     private suspend fun extractSportsOnline(
@@ -336,5 +339,5 @@ data class ZicoTvSources(
     @JsonProperty("label")
     val label: String,
     @JsonProperty("url")
-    val url: String
+    val url: String?
 )

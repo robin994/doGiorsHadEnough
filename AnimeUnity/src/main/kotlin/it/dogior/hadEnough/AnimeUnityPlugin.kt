@@ -195,7 +195,10 @@ class AnimeUnityPlugin : Plugin() {
 
         fun getConfiguredSiteUrl(sharedPref: SharedPreferences?): String {
             val configured = getValidatedSiteUrl(sharedPref?.getString(PREF_SITE_URL, null))
-            return if (configured == "https://www.animeunity.so/" || configured == "https://animeunity.so/") {
+            return if (configured in setOf(
+                    "https://www.animeunity.so/", "https://animeunity.so/",
+                    "https://www.animeunity.to/", "https://animeunity.to/",
+                )) {
                 DEFAULT_SITE_URL
             } else configured
         }

@@ -31,7 +31,7 @@ fun resolveBuildCompletedAtRome(): String {
 val buildCommitSha = resolveBuildCommitSha()
 val buildCompletedAtRome = resolveBuildCompletedAtRome()
 
-version = 9
+version = 11
 val pluginVersion = version.toString()
 
 cloudstream {
@@ -40,7 +40,15 @@ cloudstream {
 
     status = 1
 
-    tvTypes = listOf("Movie", "TvSeries", "Anime", "AnimeMovie", "Live")
+    tvTypes = listOf(
+        "TvSeries", 
+        "Movie", 
+        "AsianDrama", 
+        "Anime", 
+        "Torrent",
+        "Live",
+        "Others"
+    )
 
     requiresResources = true
     language = "it"
@@ -65,7 +73,7 @@ android {
 }
 
 dependencies {
+    compileOnly("io.coil-kt.coil3:coil:3.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
-    testImplementation("junit:junit:4.13.2")
 }

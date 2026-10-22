@@ -3,12 +3,13 @@ package it.dogior.hadEnough.anime.metadata
 import com.lagradost.cloudstream3.Actor
 import com.lagradost.cloudstream3.ActorData
 import com.lagradost.cloudstream3.ActorRole
-import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.app
-import it.dogior.hadEnough.model.AnilistEpisodeMetadata
+import it.dogior.hadEnough.cache.ExpiringCache
+import it.dogior.hadEnough.model.AnilistReleaseInfo
 import it.dogior.hadEnough.model.AnilistLoadMetadata
-import it.dogior.hadEnough.model.AnilistRecommendation
 import it.dogior.hadEnough.util.cleanText
+import it.dogior.hadEnough.util.normalizeTrailerUrl
+import it.dogior.hadEnough.util.youtubeTrailerUrl
 import it.dogior.hadEnough.util.optNullableInt
 import it.dogior.hadEnough.util.optNullableString
 import kotlinx.coroutines.delay
@@ -27,6 +28,43 @@ internal class AniListMetadataClient(
     private val performanceMode: () -> Boolean,
     private val minRequestIntervalMs: () -> Long,
 ) {
+    private val charactersCache = ExpiringCache<String, List<ActorData>>(128, 30 * 60_000L)
+    private val scoresCache = ExpiringCache<Int, String>(512, 30 * 60_000L)
+
+    suspend fun fetchCharacters(anilistId: Int?, malId: Int?): List<ActorData>? {
+        if (anilistId == null && malId == null) return null
+        val key = "$anilistId:$malId"
+        charactersCache[key]?.let { return it }
+        val media = graphQL(
+            query = CHARACTERS_QUERY,
+            variables = JSONObject().apply {
+                if (anilistId != null) put("id", anilistId) else put("idMal", malId)
+            },
+            operation = "Personaggi e doppiatori anime",
+            requestDetails = mapOf("id_anilist" to anilistId, "id_myanimelist" to malId),
+            interactive = true,
+        )?.optJSONObject("Media") ?: return null
+        return parseCharacters(media.optJSONObject("characters")).also { charactersCache.put(key, it) }
+    }
+
+    suspend fun fetchReleaseInfo(anilistId: Int?, malId: Int?): AnilistReleaseInfo? {
+        if (anilistId == null && malId == null) return null
+        val variables = JSONObject().apply {
+            if (anilistId != null) put("id", anilistId) else put("idMal", malId)
+        }
+        val media = graphQL(
+            query = RELEASE_INFO_QUERY,
+            variables = variables,
+            operation = "Stagione e anno anime AniList",
+            requestDetails = mapOf("id_anilist" to anilistId, "id_myanimelist" to malId),
+            interactive = true,
+        )?.optJSONObject("Media") ?: return null
+        return AnilistReleaseInfo(
+            year = media.optNullableInt("seasonYear") ?: media.optJSONObject("startDate")?.optNullableInt("year"),
+            season = media.optNullableString("season"),
+        )
+    }
+
     suspend fun fetchMetadata(
         anilistId: Int?,
         malId: Int?,
@@ -70,9 +108,7 @@ internal class AniListMetadataClient(
                 "id_anilist_risolto" to metadata.anilistId,
                 "id_myanimelist_risolto" to metadata.malId,
                 "titolo_risolto" to metadata.title,
-                "episodi_anilist" to metadata.episodeMetadata.size,
                 "personaggi" to metadata.characters.size,
-                "raccomandazioni" to metadata.recommendations.size,
                 "generi" to metadata.genres.size,
                 "tag" to metadata.tags.size,
             ),
@@ -95,13 +131,14 @@ internal class AniListMetadataClient(
             MetadataLog.info(SOURCE, "Recupero punteggi ignorato", mapOf("motivo" to "nessun_id"))
             return emptyMap()
         }
-        val chunks = distinctIds.chunked(SCORE_PAGE_SIZE)
+        val result = mutableMapOf<Int, String>()
+        distinctIds.forEach { id -> scoresCache[id]?.let { result[id] = it } }
+        val chunks = distinctIds.filterNot { it in result }.chunked(SCORE_PAGE_SIZE)
         MetadataLog.info(
             SOURCE,
             "Recupero punteggi avviato",
-            mapOf("id_richiesti" to distinctIds.size, "richieste_previste" to chunks.size),
+            mapOf("id_richiesti" to distinctIds.size, "id_in_cache" to result.size, "richieste_previste" to chunks.size),
         )
-        val result = mutableMapOf<Int, String>()
         chunks.forEachIndexed { index, chunk ->
             val scores = requestScores(chunk, index + 1, chunks.size)
             if (scores == null) {
@@ -113,7 +150,10 @@ internal class AniListMetadataClient(
                 return@forEachIndexed
             }
             chunk.forEach { id ->
-                scores[id]?.takeIf(String::isNotBlank)?.let { result[id] = it }
+                scores[id]?.takeIf(String::isNotBlank)?.let {
+                    result[id] = it
+                    scoresCache.put(id, it)
+                }
             }
         }
         MetadataLog.info(
@@ -165,50 +205,6 @@ internal class AniListMetadataClient(
             mapOf("id_richiesti" to distinctIds.size, "id_risolti" to result.size),
         )
         return result
-    }
-
-    fun showStatus(status: String?): ShowStatus? = when (status?.uppercase(Locale.ROOT)) {
-        "FINISHED" -> ShowStatus.Completed
-        "RELEASING", "HIATUS" -> ShowStatus.Ongoing
-        else -> null
-    }
-
-    fun seasonLabel(season: String?, year: Int?): String? {
-        val name = when (season?.uppercase(Locale.ROOT)) {
-            "WINTER" -> "Inverno"
-            "SPRING" -> "Primavera"
-            "SUMMER" -> "Estate"
-            "FALL" -> "Autunno"
-            else -> return null
-        }
-        return "Stagione: $name${year?.let { " $it" }.orEmpty()}"
-    }
-
-    fun sourceLabel(source: String?): String? {
-        val name = when (source?.uppercase(Locale.ROOT)) {
-            "MANGA" -> "Manga"
-            "LIGHT_NOVEL" -> "Light novel"
-            "NOVEL" -> "Romanzo"
-            "ORIGINAL" -> "Originale"
-            "VIDEO_GAME" -> "Videogioco"
-            "VISUAL_NOVEL" -> "Visual novel"
-            "WEB_NOVEL" -> "Web novel"
-            "DOUJINSHI" -> "Doujinshi"
-            "MULTIMEDIA_PROJECT" -> "Progetto multimediale"
-            null -> return null
-            else -> source.lowercase(Locale.ROOT).replace('_', ' ')
-                .replaceFirstChar { it.titlecase(Locale.ROOT) }
-        }
-        return "Fonte: $name"
-    }
-
-    fun formatLabel(format: String?): String? = when (format?.uppercase(Locale.ROOT)) {
-        "OVA" -> "OVA"
-        "ONA" -> "ONA"
-        "SPECIAL" -> "Speciale"
-        "TV_SHORT" -> "Corto TV"
-        "MUSIC" -> "Video musicale"
-        else -> null
     }
 
     private suspend fun graphQL(
@@ -522,8 +518,6 @@ internal class AniListMetadataClient(
             isAdult = media.optBoolean("isAdult", false),
             trailerUrl = parseTrailer(media.optJSONObject("trailer")),
             characters = parseCharacters(media.optJSONObject("characters")),
-            recommendations = parseRecommendations(media.optJSONObject("recommendations")),
-            episodeMetadata = parseEpisodes(media.optJSONArray("streamingEpisodes")),
             studios = media.optJSONObject("studios")?.optJSONArray("nodes")?.let { nodes ->
                 buildList {
                     for (index in 0 until nodes.length()) {
@@ -540,38 +534,6 @@ internal class AniListMetadataClient(
         )
     }
 
-    private fun parseEpisodes(streamingEpisodes: JSONArray?): List<AnilistEpisodeMetadata> {
-        val episodes = streamingEpisodes ?: return emptyList()
-        val seenNumbers = mutableSetOf<Int>()
-        return buildList {
-            for (index in 0 until episodes.length()) {
-                val entry = episodes.optJSONObject(index) ?: continue
-                val rawTitle = entry.optNullableString("title")
-                val number = rawTitle
-                    ?.let {
-                        Regex("""(?i)episod[eio]\s*(\d+)""")
-                            .find(it)
-                            ?.groupValues
-                            ?.getOrNull(1)
-                            ?.toIntOrNull()
-                    }
-                    ?: (index + 1)
-                if (!seenNumbers.add(number)) continue
-                val cleanTitle = rawTitle
-                    ?.replace(Regex("""(?i)^\s*episod[eio]\s*\d+\s*([-:]\s*)?"""), "")
-                    ?.trim()
-                    ?.takeIf(String::isNotBlank)
-                add(
-                    AnilistEpisodeMetadata(
-                        number = number,
-                        title = cleanTitle,
-                        posterUrl = entry.optNullableString("thumbnail"),
-                    )
-                )
-            }
-        }
-    }
-
     private fun parseTags(tags: JSONArray?): List<String> {
         val entries = tags ?: return emptyList()
         return buildList {
@@ -581,35 +543,6 @@ internal class AniListMetadataClient(
                 if (entry.optInt("rank", 0) < MINIMUM_TAG_RANK) continue
                 entry.optNullableString("name")?.let(::add)
                 if (size >= TAGS_LIMIT) break
-            }
-        }
-    }
-
-    private fun parseRecommendations(recommendationsObj: JSONObject?): List<AnilistRecommendation> {
-        val nodes = recommendationsObj?.optJSONArray("nodes") ?: return emptyList()
-        val seen = mutableSetOf<Int>()
-        return buildList {
-            for (index in 0 until nodes.length()) {
-                val media = nodes.optJSONObject(index)?.optJSONObject("mediaRecommendation") ?: continue
-                val anilistId = media.optNullableInt("id") ?: continue
-                if (!seen.add(anilistId)) continue
-                val titleObj = media.optJSONObject("title")
-                val title = titleObj?.optNullableString("romaji")
-                    ?: titleObj?.optNullableString("english")
-                    ?: continue
-                val poster = media.optJSONObject("coverImage")?.let {
-                    it.optNullableString("large") ?: it.optNullableString("medium")
-                }
-                add(
-                    AnilistRecommendation(
-                        anilistId = anilistId,
-                        malId = media.optNullableInt("idMal"),
-                        title = title,
-                        format = media.optNullableString("format"),
-                        posterUrl = poster,
-                    )
-                )
-                if (size >= RECOMMENDATIONS_LIMIT) break
             }
         }
     }
@@ -624,7 +557,12 @@ internal class AniListMetadataClient(
                 val image = node.optJSONObject("image")?.let {
                     it.optNullableString("large") ?: it.optNullableString("medium")
                 }
-                val voiceActorObj = edge.optJSONArray("voiceActors")?.optJSONObject(0)
+                val voiceActors = edge.optJSONArray("voiceActors")
+                val voiceActorObj = (0 until (voiceActors?.length() ?: 0)).firstNotNullOfOrNull { voiceIndex ->
+                    voiceActors?.optJSONObject(voiceIndex)?.takeIf {
+                        it.optJSONObject("name")?.optNullableString("full") != null
+                    }
+                }
                 val voiceActor = voiceActorObj
                     ?.optJSONObject("name")
                     ?.optNullableString("full")
@@ -648,8 +586,8 @@ internal class AniListMetadataClient(
     private fun parseTrailer(trailer: JSONObject?): String? {
         val id = trailer?.optNullableString("id") ?: return null
         return when (trailer.optNullableString("site")?.lowercase(Locale.ROOT)) {
-            "youtube" -> "https://www.youtube.com/watch?v=$id"
-            "dailymotion" -> "https://www.dailymotion.com/video/$id"
+            "youtube" -> youtubeTrailerUrl(id)
+            "dailymotion" -> normalizeTrailerUrl("https://www.dailymotion.com/video/$id")
             else -> null
         }
     }
@@ -671,12 +609,28 @@ internal class AniListMetadataClient(
     }
 
     private companion object {
+        val CHARACTERS_QUERY = """
+            query (${'$'}id: Int, ${'$'}idMal: Int) {
+              Media(id: ${'$'}id, idMal: ${'$'}idMal, type: ANIME) {
+                characters(sort: [ROLE, RELEVANCE], perPage: 25) {
+                  edges {
+                    role
+                    node { name { full } image { large medium } }
+                    voiceActors(language: JAPANESE, sort: [RELEVANCE]) {
+                      name { full }
+                      image { large medium }
+                    }
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
         const val SOURCE = "AniList"
         const val API_URL = "https://graphql.anilist.co"
         const val REQUEST_ATTEMPTS = 3
         const val RETRY_DELAY_MS = 1_000L
         const val SCORE_PAGE_SIZE = 50
-        const val RECOMMENDATIONS_LIMIT = 40
         const val MINIMUM_TAG_RANK = 60
         const val TAGS_LIMIT = 20
         val JSON_MEDIA_TYPE = "application/json".toMediaType()
@@ -716,6 +670,16 @@ internal class AniListMetadataClient(
             }
         """.trimIndent()
 
+        val RELEASE_INFO_QUERY = """
+            query (${'$'}id: Int, ${'$'}idMal: Int) {
+              Media(id: ${'$'}id, idMal: ${'$'}idMal, type: ANIME) {
+                season
+                seasonYear
+                startDate { year }
+              }
+            }
+        """.trimIndent()
+
         val MEDIA_QUERY = """
             query (${'$'}id: Int, ${'$'}idMal: Int) {
               Media(id: ${'$'}id, idMal: ${'$'}idMal, type: ANIME) {
@@ -741,7 +705,6 @@ internal class AniListMetadataClient(
                 trailer { id site }
                 studios(isMain: true) { nodes { name } }
                 nextAiringEpisode { airingAt episode }
-                streamingEpisodes { title thumbnail }
                 characters(sort: [ROLE, RELEVANCE], perPage: 25) {
                   edges {
                     role
@@ -749,17 +712,6 @@ internal class AniListMetadataClient(
                     voiceActors(language: JAPANESE, sort: [RELEVANCE]) {
                       name { full }
                       image { large medium }
-                    }
-                  }
-                }
-                recommendations(sort: [RATING_DESC], perPage: 40) {
-                  nodes {
-                    mediaRecommendation {
-                      id
-                      idMal
-                      format
-                      title { romaji english }
-                      coverImage { large medium }
                     }
                   }
                 }
@@ -773,6 +725,9 @@ internal class AniListMetadataClient(
                 id
                 idMal
                 format
+                season
+                seasonYear
+                startDate { year }
                 title { romaji english native }
                 synonyms
               }

@@ -4,6 +4,8 @@ import android.content.SharedPreferences
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.TvType
+import it.dogior.hadEnough.iptv.StreamCenterIptv
+import it.dogior.hadEnough.StreamCenterTrackingMediaCategory
 import it.dogior.hadEnough.stremio.StreamCenterStremioAddon
 import it.dogior.hadEnough.stremio.StreamCenterStremioCatalogDescriptor
 import it.dogior.hadEnough.stremio.StreamCenterStremioResource
@@ -22,6 +24,7 @@ internal data class StreamCenterCatalogSection(
     val trackingServiceKey: String? = null,
     val trackingListKey: String? = null,
     val stremioCatalog: StreamCenterStremioCatalogDescriptor? = null,
+    val trackingMediaCategory: StreamCenterTrackingMediaCategory = StreamCenterTrackingMediaCategory.ALL,
 )
 
 internal data class StreamCenterCatalogDefinition(
@@ -82,8 +85,8 @@ internal object StreamCenterCatalogs {
         } else {
             emptyList()
         }
-        return lists.map { (listKey, title) ->
-            StreamCenterCatalogSection(
+        return lists.flatMap { (listKey, title) ->
+            val combined = StreamCenterCatalogSection(
                 key = "${catalogKey}_tracking_$listKey",
                 title = title,
                 path = "tracking:$listKey",
@@ -92,6 +95,25 @@ internal object StreamCenterCatalogs {
                 trackingServiceKey = catalogKey,
                 trackingListKey = listKey,
             )
+            if (catalogKey != "simkl") {
+                listOf(combined)
+            } else {
+                listOf(combined) + StreamCenterTrackingMediaCategory.entries
+                    .filterNot { it == StreamCenterTrackingMediaCategory.ALL }
+                    .filter { it.supportsStatus(listKey) }
+                    .map { category ->
+                        combined.copy(
+                            key = "${combined.key}_${category.key}",
+                            title = "${category.statusTitle(listKey, title)} · ${category.title}",
+                            type = when (category) {
+                                StreamCenterTrackingMediaCategory.TV -> TvType.TvSeries
+                                StreamCenterTrackingMediaCategory.MOVIES -> TvType.Movie
+                                else -> TvType.Anime
+                            },
+                            trackingMediaCategory = category,
+                        )
+                    }
+            }
         }
     }
 
@@ -319,14 +341,60 @@ internal object StreamCenterCatalogs {
         ),
     )
 
+    const val IPTV_CATALOG_KEY_PREFIX = "iptvlist_"
+
+    fun iptvCatalogKey(playlistKey: String): String = "$IPTV_CATALOG_KEY_PREFIX$playlistKey"
+
+    fun iptvPlaylistKey(catalogKey: String): String = catalogKey.removePrefix(IPTV_CATALOG_KEY_PREFIX)
+
+    fun isIptvCatalogKey(catalogKey: String): Boolean = catalogKey.startsWith(IPTV_CATALOG_KEY_PREFIX)
+
+    fun iptvCustomCatalogDefinition(
+        playlist: StreamCenterIptv.CustomPlaylist,
+    ): StreamCenterCatalogDefinition? {
+        if (playlist.categories.isEmpty()) return null
+        val sections = playlist.categories.map { category ->
+            StreamCenterCatalogSection(
+                key = "iptvcat_${category.lowercase(Locale.ROOT).hashCode().toUInt().toString(16)}",
+                title = category,
+                path = category,
+                type = TvType.Live,
+            )
+        }.distinctBy(StreamCenterCatalogSection::key)
+        return StreamCenterCatalogDefinition(
+            key = iptvCatalogKey(playlist.key),
+            title = playlist.name,
+            displayName = "StreamCenter (${playlist.name})",
+            websiteUrl = playlist.url ?: "https://streamcenter.local/iptv/${playlist.key}",
+            sections = sections,
+            supportedTypes = setOf(TvType.Live),
+        )
+    }
+
+    fun iptvCustomCatalogs(): List<StreamCenterCatalogDefinition> =
+        StreamCenterIptv.customPlaylists().mapNotNull(::iptvCustomCatalogDefinition)
+
+    fun removeIptvCatalog(sharedPref: SharedPreferences?, playlistKey: String) {
+        removeCatalog(
+            sharedPref,
+            StreamCenterCatalogDefinition(
+                key = iptvCatalogKey(playlistKey),
+                title = "",
+                displayName = "",
+                websiteUrl = "",
+                sections = emptyList(),
+            ),
+        )
+    }
+
     fun allCatalogs(sharedPref: SharedPreferences?): List<StreamCenterCatalogDefinition> =
-        catalogs + stremioCatalogs(sharedPref)
+        catalogs + stremioCatalogs(sharedPref) + iptvCustomCatalogs()
 
     fun stremioCatalogDefinition(
         addon: StreamCenterStremioAddon,
     ): StreamCenterCatalogDefinition? {
         val sections = addon.catalogs.mapNotNull { descriptor ->
-            val type = stremioTvType(descriptor.type) ?: return@mapNotNull null
+            val type = stremioSectionTvType(descriptor.type) ?: return@mapNotNull null
             if (descriptor.requiredExtra.any { name -> !name.equals("skip", ignoreCase = true) }) {
                 return@mapNotNull null
             }
@@ -363,6 +431,7 @@ internal object StreamCenterCatalogs {
             iconUrl = addon.logoUrl,
             sections = titledSections,
             stremioAddon = addon,
+            supportedTypes = stremioCatalogSupportedTypes(titledSections.mapNotNull { it.stremioCatalog?.type }),
         )
     }
 
@@ -543,6 +612,7 @@ internal object StreamCenterCatalogs {
                             put("name", catalog.name)
                             put("extra", JSONArray(catalog.extra))
                             put("requiredExtra", JSONArray(catalog.requiredExtra))
+                            put("pageSize", catalog.pageSize)
                         },
                     )
                 }
@@ -587,6 +657,7 @@ internal object StreamCenterCatalogs {
                             name = catalogName,
                             extra = catalog.optStringList("extra"),
                             requiredExtra = catalog.optStringList("requiredExtra"),
+                            pageSize = catalog.optInt("pageSize", 100).takeIf { it > 0 } ?: 100,
                         ),
                     )
                 }
@@ -613,14 +684,6 @@ internal object StreamCenterCatalogs {
             }
         }
     }.orEmpty()
-
-    private fun stremioTvType(type: String): TvType? = when (type.lowercase(Locale.ROOT)) {
-        "movie" -> TvType.Movie
-        "series" -> TvType.TvSeries
-        "anime" -> TvType.Anime
-        "tv", "channel" -> TvType.Live
-        else -> null
-    }
 
     private fun stremioSectionTypeTitle(type: TvType): String = when (type) {
         TvType.Movie -> "Film"
