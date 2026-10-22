@@ -160,7 +160,7 @@ class StreamCenterPlugin : Plugin() {
         const val PREF_URL_VIXSRC = "urlVixSrc"
         const val PREF_URL_VIDXGO = "urlVidxGo"
 
-        const val DEFAULT_URL_ANIMEUNITY = "https://www.animeunity.so"
+        const val DEFAULT_URL_ANIMEUNITY = "https://www.animeunity.co"
         const val DEFAULT_URL_ANIMEWORLD = "https://www.animeworld.ac"
         const val DEFAULT_URL_ANIMESATURN = "https://www.animesaturn.net"
         const val DEFAULT_URL_STREAMINGCOMMUNITY = "https://streamingcommunityz.partners"
@@ -658,6 +658,11 @@ class StreamCenterPlugin : Plugin() {
                 ?.getString(source.urlPrefKey, null)
                 ?.let(::normalizeSourceUrl)
                 ?.takeIf { it.isNotBlank() }
+            if (prefKey == PREF_SOURCE_ANIMEUNITY &&
+                (stored == "https://www.animeunity.so" || stored == "https://animeunity.so")
+            ) {
+                return DEFAULT_URL_ANIMEUNITY
+            }
             return stored ?: source.defaultUrl.trimEnd('/')
         }
 

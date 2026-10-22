@@ -12,7 +12,7 @@
     <string name="settings_open_action">Apri</string>
 
     <string name="site_url_label">Link</string>
-    <string name="site_url_hint">Es: animeunity.so</string>
+    <string name="site_url_hint">Es: animeunity.co</string>
     <string name="site_url_invalid">Link non valido. Controlla il formato.</string>
     <string name="site_url_reset_action">Ripristina link predefinito</string>
 

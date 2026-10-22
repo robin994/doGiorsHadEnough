@@ -57,7 +57,7 @@ class AnimeUnity(
 
     companion object {
         @Suppress("ConstPropertyName")
-        const val mainUrl = "https://www.animeunity.so"
+        const val mainUrl = "https://www.animeunity.co"
         const val ARCHIVE_BATCH_SIZE = 30
         const val advancedSearchSectionName = "Ricerca avanzata"
         const val latestEpisodesSectionName = "Ultimi Episodi"
