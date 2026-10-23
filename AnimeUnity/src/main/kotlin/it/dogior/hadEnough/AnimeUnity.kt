@@ -797,13 +797,13 @@ class AnimeUnity(
      * divergenza il titolo mostrato non corrisponde più al video.
      *
      * Quando il nome file contiene il titolo italiano lo usiamo noi e il sync
-     * non lo sovrascrive. Quando non c'è (upload vecchi tipo `Nome_Ep_01_ITA`)
-     * restituiamo `null`: meglio lasciare che CloudStream riempia dal sync un
-     * titolo vero - anche se in lingua originale - piuttosto che mostrare
-     * "Episodio N" per tutta la serie (era il comportamento precedente).
+     * non lo sovrascrive. Quando non c'è (upload vecchi tipo `Nome_Ep_01_ITA`),
+     * mostriamo un'etichetta italiana neutra: il sync può altrimenti inserire
+     * titoli inglesi e associarli all'episodio sbagliato.
      */
     private fun italianEpisodeName(episode: Episode): String? {
         return parseEpisodeTitleFromFileName(episode.fileName)
+            ?: buildEpisodeDisplayName(episode.number)
     }
 
     private fun buildPlayerSourceOptions(playbackData: EpisodePlaybackData): List<PlayerSourceOption> {
