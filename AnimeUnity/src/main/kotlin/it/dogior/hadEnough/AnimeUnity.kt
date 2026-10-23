@@ -789,21 +789,22 @@ class AnimeUnity(
     }
 
     /**
-     * AnimeUnity numera gli episodi secondo l'edizione italiana, che per molte
-     * serie (Detective Conan, ecc.) diverge dalla numerazione giapponese usata
-     * dai metadati di sincronizzazione (Kitsu/AniList). CloudStream riempie il
-     * nome degli episodi privi di titolo abbinando per numero
-     * (`this.name = this.name ?: node.titles.canonical`), quindi dopo ogni
-     * divergenza il titolo mostrato non corrisponde più al video.
-     *
-     * Quando il nome file contiene il titolo italiano lo usiamo noi e il sync
-     * non lo sovrascrive. Quando non c'è (upload vecchi tipo `Nome_Ep_01_ITA`),
-     * mostriamo un'etichetta italiana neutra: il sync può altrimenti inserire
-     * titoli inglesi e associarli all'episodio sbagliato.
+     * Prefer the Italian title embedded in the source filename, when present.
+     * Older Detective Conan uploads contain only an episode number. For this
+     * show we use verified international-number -> Italian-title metadata.
+     * Other shows keep their original CloudStream sync fallback: translating
+     * Japanese indices as if they were Italian would assign incorrect titles.
      */
-    private fun italianEpisodeName(episode: Episode): String? {
-        return parseEpisodeTitleFromFileName(episode.fileName)
-            ?: buildEpisodeDisplayName(episode.number)
+    private fun italianEpisodeName(anime: Anime, episode: Episode): String? {
+        parseEpisodeTitleFromFileName(episode.fileName)?.let { return it }
+
+        // The separate simulcast listing has its own numbering (it omits
+        // certain specials), so do not apply this mapping to that listing.
+        if (anime.malId == 235 && anime.type == "TV" && anime.slug == "detective-conan") {
+            return DetectiveConanEpisodeTitles.get(episode.number)
+                ?: buildEpisodeDisplayName(episode.number)
+        }
+        return null
     }
 
     private fun buildPlayerSourceOptions(playbackData: EpisodePlaybackData): List<PlayerSourceOption> {
@@ -846,7 +847,7 @@ class AnimeUnity(
 
         episodes.forEach { episode ->
             val rawNumber = episode.number.trim()
-            val title = if (useItalianTitles) italianEpisodeName(episode) else null
+            val title = if (useItalianTitles) italianEpisodeName(sourceAnime, episode) else null
             sourceMap.putIfAbsent(
                 rawNumber,
                 EpisodeSource(
